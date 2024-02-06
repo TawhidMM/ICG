@@ -14,6 +14,8 @@ ParseTree* handleExpression(ParseTree* root, string& operation);
 
 ofstream asm_out;
 bool globalScope = true;
+bool expValuePushed = false;
+bool printFuncCalled = false;
 string str;
 
 
@@ -140,35 +142,75 @@ ParseTree* handleExpression(ParseTree* root, string& operation) {
     if(nodeStr.find("CONST_INT")==0){
         asm_out << "\tMOV AX," << root->getSymbol()->getName() << endl;
     }
+    else if(nodeStr == "factor : LPAREN expression RPAREN"){
+        asm_out << "\tPUSH AX" << endl;
+        expValuePushed = true;
+    }
     else if(nodeStr.find("ADDOP")==0){
-        operation = root->getSymbol()->getName();
+        /* operation = root->getSymbol()->getName(); */
         asm_out << "\tMOV DX, AX" << endl;
     }
-    /* else if(nodeStr.find("MULOP")==0){
-        operation = root->getSymbol()->getName();
+    else if(nodeStr.find("MULOP")==0){
+        /* operation = root->getSymbol()->getName(); */
         asm_out << "\tMOV CX, AX" << endl;
-    } */
+    }
 
     ParseTree* child = root->getChild();
+    ParseTree* returnRoot;
 
     while(child != nullptr){
-        root = handleExpression(child, operation);
+        returnRoot = handleExpression(child, operation);
         child = child->getSibling();
     }
 
     if(nodeStr == "simple_expression : simple_expression ADDOP term"){
+        cout << nodeStr << endl;
+        ParseTree* child2 = root->getChild()->getSibling();
+        cout << child2->getNode() << endl;
+        string operation = "";
+        cout << "dhuruuuuu" << endl;
+        /* operation = child2->getSymbol()->getDataType(); */
+       
+        if(child2->getSymbol())
+            cout << "null" << endl;
+
+        if(expValuePushed) {
+            asm_out << "\tPOP DX" << endl;
+            expValuePushed = false;
+        }
+
         if(operation == "+")
-            asm_out << "\tADD AX, DX" << endl;
+            asm_out << "\tADD AX, DX" << endl;            
         else if(operation == "-")
-            asm_out << "\tSUB AX, DX" << endl;    
+            asm_out << "\tSUB AX, DX" << endl; 
+
+        asm_out << "\tPUSH AX" << endl;      
     }
-    /* else if(nodeStr == "term : term MULOP unary_expression") {
+
+    else if(nodeStr == "term : term MULOP unary_expression") {
+        ParseTree* child2 = root->getChild()->getSibling();
+        string operation = child2->getSymbol()->getDataType();
+
+        if(expValuePushed) {
+            asm_out << "\tPOP CX" << endl;
+            expValuePushed = false;
+        }
+
         if(operation == "*"){
             asm_out << "\tMUL CX" << endl;
         }
-    } */
+        else if(operation == "/"){
+            asm_out << "\tDIV CX" << endl;
+        }
+        else if(operation == "%"){
+            asm_out << "\tDIV CX" << endl;
+            asm_out << "\tMOV AX, DX" << endl;
+        }
 
-    return root;
+        asm_out << "\tPUSH AX" << endl; 
+    }
+
+    return returnRoot;
 }
 
 
