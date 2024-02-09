@@ -15,6 +15,7 @@ public:
 void traverse(ParseTree* root);
 ParseTree* handleVarDeclaration(ParseTree* root);
 void declareGlobalVar(string varName);
+void declareLocalVar();
 /* ParseTree* */void handleFuncDefinition(ParseTree* root);
 /* ParseTree* */void handleExpression(ParseTree* root);
 
@@ -23,6 +24,8 @@ ofstream asm_out;
 bool globalScope = true;
 bool expValuePushed = false;
 bool printFuncCalled = false;
+bool arrayDeclared = false;
+int localVarOffset = 0;
 string str;
 
 RegisterStatus BX;
@@ -70,6 +73,7 @@ void traverse(ParseTree* root) {
         globalScope = false;
         /* root = */ handleFuncDefinition(root);
         globalScope = true;
+        localVarOffset = 0;
         return;
     }
     
@@ -86,8 +90,29 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
     string nodeStr = root->getNode();
 
     if(nodeStr.find("ID") == 0) {
-        if(globalScope)
-            declareGlobalVar(root->getSymbol()->getName());
+        if(globalScope) {
+            root->getSymbol()->setType("GLOBAL_VARIABLE");
+            asm_out << "\t" << root->getSymbol()->getName() << " DW ";
+        }
+        else {
+            root->getSymbol()->setType("LOCAL_VARIABLE");
+
+            asm_out << "\tSUB SP, 2" << endl;
+            localVarOffset += 2;
+            root->getSymbol()->offset = (localVarOffset); 
+        }
+    }
+    else if (nodeStr.find("CONST_INT") == 0) {
+        if(globalScope) {
+            asm_out << root->getSymbol()->getName() << " DUP (0000H)" << endl;
+            arrayDeclared = true;
+        } 
+    }
+    else if(nodeStr.find("COMMA")==0 || nodeStr.find("SEMICOLON")==0) {
+        if(globalScope && !arrayDeclared) {
+            asm_out << "1 DUP (0000H)" << endl;
+        } 
+        arrayDeclared = false;
     }
 
     ParseTree* child = root->getChild();
@@ -101,7 +126,12 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
 }
 
 void declareGlobalVar(string varName) {
-    asm_out << "\t" << varName  << " DW 1 DUP (0000H)" << endl;
+    
+}
+
+void declareLocalVar() {
+    asm_out << "\tSUB SP, 2" << endl;
+    localVarOffset += 2;
 }
 
 
@@ -119,13 +149,26 @@ void declareGlobalVar(string varName) {
                 "\tMOV DS, AX" 
             << endl;
         }
+        asm_out << 
+            "\tPUSH BP\n" <<
+            "\tMOV BP, SP"
+        << endl;
     }
     else if(nodeStr.find("expression") == 0) {
         /* root = */ handleExpression(root);
         return;
         
     }
-    else if(nodeStr == "RCURL : }"){
+    else if(nodeStr.find("var_declaration") == 0) {
+        cout << "entered" << endl;
+        root = handleVarDeclaration(root);
+    }
+    else if(nodeStr == "RCURL : }") {
+        if(localVarOffset != 0){
+            asm_out << "\tADD SP, " << localVarOffset << endl;
+        }
+        asm_out << "\tPOP BP" << endl;
+
         if(str == "main"){
             asm_out << 
                 "\tMOV AX,4CH\n"
@@ -156,6 +199,15 @@ void declareGlobalVar(string varName) {
         asm_out << "\tPUSH AX" << endl;
         expValuePushed = true;
     } */
+    else if(nodeStr.find("ID")==0){
+        if(root->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+            asm_out << "\tMOV AX," << root->getSymbol()->getName() << endl;
+        }
+        else if(root->getSymbol()->getType()=="LOCAL_VARIABLE") {
+            asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
+        }
+            
+    }
     else if(nodeStr.find("ADDOP")==0){
         if(BX.used){
             asm_out << "\tPUSH BX" << endl;
@@ -220,6 +272,21 @@ void declareGlobalVar(string varName) {
             CX.pushed = false;
         }   
         CX.used = false; 
+    }
+    else if(nodeStr == "expression : variable ASSIGNOP logic_expression") {
+
+        ParseTree* temp = root;
+        while(temp->getChild()){
+            temp = temp->getChild();
+        }
+
+        if(temp->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+            string varName =temp->getSymbol()->getName();
+            asm_out << "\tMOV " << varName << ", AX" << endl;
+        }
+        else if(temp->getSymbol()->getType()=="LOCAL_VARIABLE") {
+            asm_out << "\tMOV [BP-" << temp->getSymbol()->offset << "], AX" << endl; 
+        }
     }
 }
 
