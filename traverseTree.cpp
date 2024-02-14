@@ -18,6 +18,8 @@ void declareGlobalVar(string varName);
 void declareLocalVar();
 /* ParseTree* */void handleFuncDefinition(ParseTree* root);
 /* ParseTree* */void handleExpression(ParseTree* root);
+void handlePrint(ParseTree* root);
+void addPrintFunction();
 
 
 ofstream asm_out;
@@ -51,8 +53,11 @@ void traverseTree(ParseTree* tree, string FILE) {
     asm_out << ".MODEL SMALL" << endl;
     asm_out << ".STACK 1000H" << endl;
     asm_out << ".Data" << endl;
+    asm_out << "\tnumber DB \"00000$\"" << endl;
 
     traverse(tree);
+
+    if(printFuncCalled) addPrintFunction();
 
     asm_out << "END main" << endl;
 }
@@ -96,11 +101,12 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         }
         else {
             root->getSymbol()->setType("LOCAL_VARIABLE");
-
+            
             asm_out << "\tSUB SP, 2" << endl;
             localVarOffset += 2;
             root->getSymbol()->offset = (localVarOffset); 
         }
+        cout << root->getSymbol()->getType() << " during dec" << endl;
     }
     else if (nodeStr.find("CONST_INT") == 0) {
         if(globalScope) {
@@ -125,14 +131,6 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
     return root;
 }
 
-void declareGlobalVar(string varName) {
-    
-}
-
-void declareLocalVar() {
-    asm_out << "\tSUB SP, 2" << endl;
-    localVarOffset += 2;
-}
 
 
 /* ParseTree* */ void handleFuncDefinition(ParseTree* root) {
@@ -159,8 +157,13 @@ void declareLocalVar() {
         return;
         
     }
+    else if(nodeStr.find("PRINTLN") != string::npos) {
+        printFuncCalled = true;
+        handlePrint(root);
+        return;
+        
+    }
     else if(nodeStr.find("var_declaration") == 0) {
-        cout << "entered" << endl;
         root = handleVarDeclaration(root);
     }
     else if(nodeStr == "RCURL : }") {
@@ -281,13 +284,63 @@ void declareLocalVar() {
         }
 
         if(temp->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+            cout << *temp->getSymbol() << " global call" << endl;
             string varName =temp->getSymbol()->getName();
             asm_out << "\tMOV " << varName << ", AX" << endl;
         }
         else if(temp->getSymbol()->getType()=="LOCAL_VARIABLE") {
+            cout << *temp->getSymbol() << " local call" << endl;
             asm_out << "\tMOV [BP-" << temp->getSymbol()->offset << "], AX" << endl; 
         }
+
     }
+}
+
+
+void handlePrint(ParseTree* root) {
+    ParseTree* child = root->getChild();
+
+    while(child->getNode() != "ID") {
+        child = child->getSibling();
+    }
+
+    if(child->getSymbol()->getType()=="LOCAL_VARIABLE") {
+        asm_out << "\tMOV AX, [BP-" << child->getSymbol()->offset << "]" << endl;
+    }
+    else if(child->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+        asm_out << "\tMOV AX, " << child->getSymbol()->getName() << endl;
+    }
+
+    asm_out << "\tCALL print_output" << endl;
+	asm_out << "\tCALL new_line" << endl;
+    
+
+}
+
+
+void addPrintFunction() {
+    string FILE_NAME = "printProc.lib";
+
+    ifstream printFile(FILE_NAME);
+
+    // Check if the source file is open
+    if (!printFile.is_open()) {
+        std::cerr << "Error opening print function file." << std::endl;
+    }
+
+
+    asm_out << ";-------------------------------" << endl;
+    asm_out << ";           print library       " << endl;      
+    asm_out << ";-------------------------------" << endl;
+
+    string line;
+    while (getline(printFile, line)) {
+        asm_out << line << std::endl;
+    }
+
+    asm_out << ";-------------------------------" << endl;
+
+    printFile.close();
 }
 
 
