@@ -20,7 +20,16 @@ void declareLocalVar();
 /* ParseTree* */void handleExpression(ParseTree* root);
 void handlePrint(ParseTree* root);
 void addPrintFunction();
+void handleAssignment(ParseTree* root);
 
+
+/* 
+
+******** problems ***********
+1. sub 
+
+
+ */
 
 ofstream asm_out;
 bool globalScope = true;
@@ -96,17 +105,16 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
 
     if(nodeStr.find("ID") == 0) {
         if(globalScope) {
-            root->getSymbol()->setType("GLOBAL_VARIABLE");
+            root->getSymbol()->scope = "GLOBAL";
             asm_out << "\t" << root->getSymbol()->getName() << " DW ";
         }
         else {
-            root->getSymbol()->setType("LOCAL_VARIABLE");
+            root->getSymbol()->scope = "LOCAL";
             
             asm_out << "\tSUB SP, 2" << endl;
             localVarOffset += 2;
             root->getSymbol()->offset = (localVarOffset); 
         }
-        cout << root->getSymbol()->getType() << " during dec" << endl;
     }
     else if (nodeStr.find("CONST_INT") == 0) {
         if(globalScope) {
@@ -152,8 +160,8 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
             "\tMOV BP, SP"
         << endl;
     }
-    else if(nodeStr.find("expression") == 0) {
-        /* root = */ handleExpression(root);
+    else if(nodeStr.find("expression : variable ASSIGNOP logic_expression") == 0) {
+        /* root = */ handleAssignment(root);
         return;
         
     }
@@ -191,24 +199,71 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
     /* return root; */
 }
 
+void handleAssignment(ParseTree* root){
+    ParseTree* child = root->getChild();
+
+    while(child->getSibling()) {
+        child = child->getSibling();
+    }
+
+    handleExpression(child);
+   
+    child = root->getChild();
+    
+    if(child->getNode()=="variable : ID"){
+        child = child->getChild();
+
+        if(child->getSymbol()->scope=="GLOBAL") {
+            asm_out << "\tMOV " << 
+                child->getSymbol()->getName() << 
+                ", AX" 
+            << endl;
+        }
+        else if(child->getSymbol()->scope=="LOCAL") {
+            asm_out << "\tMOV [BP-" << child->getSymbol()->offset << "], AX" << endl; 
+        }
+
+    }
+    else if(child->getNode()=="variable : ID LSQUARE expression RSQUARE") {
+        /* right side exp value pushed */
+        asm_out << "\tPUSH AX" << endl;
+
+        child = child->getChild();
+        handleExpression(child->getSibling()->getSibling());
+
+        /* array index at AX, pop the right side value at CX */
+        asm_out << 
+            "\tPOP CX\n" <<
+            "\tMOV DX, 2\n" <<
+            "\tMUL DX\n" <<
+            "\tMOV BX, AX\n" <<
+            "\tMOV " << child->getSymbol()->getName() << "[BX], CX" << endl;
+    }
+    
+}
+
 
 /* ParseTree* */void handleExpression(ParseTree* root) {
     string nodeStr = root->getNode();
     
     if(nodeStr.find("CONST_INT")==0){
         asm_out << "\tMOV AX," << root->getSymbol()->getName() << endl;
+
+        cout << root->getSymbol()->getName() << " int found " << endl;
     }
-    /* else if(nodeStr == "factor : LPAREN expression RPAREN"){
-        asm_out << "\tPUSH AX" << endl;
-        expValuePushed = true;
-    } */
+   
     else if(nodeStr.find("ID")==0){
-        if(root->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+        string scope = root->getSymbol()->scope;
+        string type = root->getSymbol()->getType();
+
+        if(scope=="GLOBAL" && type=="VARIABLE") {
             asm_out << "\tMOV AX," << root->getSymbol()->getName() << endl;
         }
-        else if(root->getSymbol()->getType()=="LOCAL_VARIABLE") {
+        else if(scope=="LOCAL" && type=="VARIABLE") {
             asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
         }
+
+        cout << root->getSymbol()->getName() << " id found " << endl;
             
     }
     else if(nodeStr.find("ADDOP")==0){
@@ -226,11 +281,10 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         }
         asm_out << "\tMOV CX, AX" << endl;
         CX.used = true;
-    }
-
+    } 
+    
     ParseTree* child = root->getChild();
-    ParseTree* returnRoot;
-
+   
     while(child != nullptr){
         /* root = */ handleExpression(child);
         child = child->getSibling();
@@ -250,7 +304,14 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         }   
         BX.used = false;       
     }
-
+    else if(nodeStr == "variable : ID LSQUARE expression RSQUARE") {
+        asm_out << 
+            "\tMOV DX, 2\n" <<
+            "\tMUL DX\n" <<
+            "\tMOV BX, AX\n" <<
+            "\tMOV AX, " << root->getChild()->getSymbol()->getName() << "[BX]" 
+        << endl;
+    }
     else if(nodeStr == "term : term MULOP unary_expression") {
         string operation = root->getChild()->getSibling()->getSymbol()->getName();
 
@@ -276,24 +337,6 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         }   
         CX.used = false; 
     }
-    else if(nodeStr == "expression : variable ASSIGNOP logic_expression") {
-
-        ParseTree* temp = root;
-        while(temp->getChild()){
-            temp = temp->getChild();
-        }
-
-        if(temp->getSymbol()->getType()=="GLOBAL_VARIABLE") {
-            cout << *temp->getSymbol() << " global call" << endl;
-            string varName =temp->getSymbol()->getName();
-            asm_out << "\tMOV " << varName << ", AX" << endl;
-        }
-        else if(temp->getSymbol()->getType()=="LOCAL_VARIABLE") {
-            cout << *temp->getSymbol() << " local call" << endl;
-            asm_out << "\tMOV [BP-" << temp->getSymbol()->offset << "], AX" << endl; 
-        }
-
-    }
 }
 
 
@@ -304,10 +347,10 @@ void handlePrint(ParseTree* root) {
         child = child->getSibling();
     }
 
-    if(child->getSymbol()->getType()=="LOCAL_VARIABLE") {
+    if(child->getSymbol()->scope=="LOCAL") {
         asm_out << "\tMOV AX, [BP-" << child->getSymbol()->offset << "]" << endl;
     }
-    else if(child->getSymbol()->getType()=="GLOBAL_VARIABLE") {
+    else if(child->getSymbol()->scope=="GLOBAL") {
         asm_out << "\tMOV AX, " << child->getSymbol()->getName() << endl;
     }
 
@@ -329,7 +372,7 @@ void addPrintFunction() {
     }
 
 
-    asm_out << ";-------------------------------" << endl;
+    asm_out << "\n\n;-------------------------------" << endl;
     asm_out << ";           print library       " << endl;      
     asm_out << ";-------------------------------" << endl;
 
