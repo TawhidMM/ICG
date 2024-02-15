@@ -13,9 +13,7 @@ public:
 
 
 void traverse(ParseTree* root);
-ParseTree* handleVarDeclaration(ParseTree* root);
-void declareGlobalVar(string varName);
-void declareLocalVar();
+/* ParseTree* */ void handleVarDeclaration(ParseTree* root);
 /* ParseTree* */void handleFuncDefinition(ParseTree* root);
 /* ParseTree* */void handleExpression(ParseTree* root);
 void handlePrint(ParseTree* root);
@@ -77,11 +75,12 @@ void traverse(ParseTree* root) {
     string node = root->getNode();
 
     if(node.find("var_declaration") == 0) {
-        root = handleVarDeclaration(root);
+        /* root = */ handleVarDeclaration(root);
 
         /* if global var declaration, start the code segment */
         if(globalScope)
             asm_out << ".CODE" << endl;
+        return;
     }
     else if(node.find("func_definition") == 0) {
         globalScope = false;
@@ -100,7 +99,7 @@ void traverse(ParseTree* root) {
 
 }
 
-ParseTree* handleVarDeclaration(ParseTree* root) {
+/* ParseTree* */ void handleVarDeclaration(ParseTree* root) {
     string nodeStr = root->getNode();
 
     if(nodeStr.find("ID") == 0) {
@@ -110,10 +109,12 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         }
         else {
             root->getSymbol()->scope = "LOCAL";
-            
-            asm_out << "\tSUB SP, 2" << endl;
-            localVarOffset += 2;
-            root->getSymbol()->offset = (localVarOffset); 
+
+            if(root->getSymbol()->getType()=="VARIABLE"){
+                asm_out << "\tSUB SP, 2" << endl;
+                localVarOffset += 2;
+                root->getSymbol()->offset = (localVarOffset); 
+            }
         }
     }
     else if (nodeStr.find("CONST_INT") == 0) {
@@ -121,6 +122,10 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
             asm_out << root->getSymbol()->getName() << " DUP (0000H)" << endl;
             arrayDeclared = true;
         } 
+        else {
+            localVarOffset += stoi(root->getSymbol()->getName())*2;
+            asm_out << "\tSUB SP, " << stoi(root->getSymbol()->getName())*2 << endl;
+        }
     }
     else if(nodeStr.find("COMMA")==0 || nodeStr.find("SEMICOLON")==0) {
         if(globalScope && !arrayDeclared) {
@@ -132,11 +137,25 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
     ParseTree* child = root->getChild();
 
     while(child != nullptr){
-        root = handleVarDeclaration(child);
+        /* root = */ handleVarDeclaration(child);
         child = child->getSibling();
     }
 
-    return root;
+    /* set offset for local array */
+    if(nodeStr.find("ID LSQUARE CONST_INT RSQUARE")!=string::npos) {
+        ParseTree* id = root->getChild();
+
+        while(id->getNode()!="ID"){
+            id = id->getSibling();
+        }
+        
+
+        if(id->getSymbol()->scope=="LOCAL"){
+            id->getSymbol()->offset = localVarOffset;
+        }
+    }
+
+    /* return root; */
 }
 
 
@@ -172,7 +191,8 @@ ParseTree* handleVarDeclaration(ParseTree* root) {
         
     }
     else if(nodeStr.find("var_declaration") == 0) {
-        root = handleVarDeclaration(root);
+        /* root = */ handleVarDeclaration(root);
+        return;
     }
     else if(nodeStr == "RCURL : }") {
         if(localVarOffset != 0){
@@ -231,15 +251,29 @@ void handleAssignment(ParseTree* root){
         child = child->getChild();
         handleExpression(child->getSibling()->getSibling());
 
-        /* array index at AX, pop the right side value at CX */
-        asm_out << 
-            "\tPOP CX\n" <<
-            "\tMOV DX, 2\n" <<
-            "\tMUL DX\n" <<
-            "\tMOV BX, AX\n" <<
-            "\tMOV " << child->getSymbol()->getName() << "[BX], CX" << endl;
+        if(child->getSymbol()->scope=="GLOBAL"){
+            /* array index at AX, pop the right side value at CX */
+            asm_out << 
+                "\tPOP CX\n" <<
+                "\tMOV DX, 2\n" <<
+                "\tMUL DX\n" <<
+                "\tMOV BX, AX\n" <<
+                "\tMOV " << child->getSymbol()->getName() << "[BX], CX" << endl;
+        }
+        else if(child->getSymbol()->scope=="LOCAL"){
+            /* array index at AX, pop the right side value at CX */
+            asm_out << 
+                "\tPOP CX\n" <<
+                "\tMOV DX, 2\n" <<
+                "\tMUL DX\n" <<
+                "\tMOV BX, AX\n" <<
+                "\tMOV AX, " << child->getSymbol()->offset << "\n"
+                "\tSUB AX, BX\n" <<
+                "\tMOV SI, AX\n" <<
+                "\tNEG SI\n" <<
+                "\tMOV [BP+SI], CX" << endl;
+        } 
     }
-    
 }
 
 
@@ -261,10 +295,7 @@ void handleAssignment(ParseTree* root){
         }
         else if(scope=="LOCAL" && type=="VARIABLE") {
             asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
-        }
-
-        cout << root->getSymbol()->getName() << " id found " << endl;
-            
+        }    
     }
     else if(nodeStr.find("ADDOP")==0){
         if(BX.used){
@@ -305,12 +336,28 @@ void handleAssignment(ParseTree* root){
         BX.used = false;       
     }
     else if(nodeStr == "variable : ID LSQUARE expression RSQUARE") {
-        asm_out << 
-            "\tMOV DX, 2\n" <<
-            "\tMUL DX\n" <<
-            "\tMOV BX, AX\n" <<
-            "\tMOV AX, " << root->getChild()->getSymbol()->getName() << "[BX]" 
-        << endl;
+        /* index already in AX */
+        if(root->getChild()->getSymbol()->scope=="GLOBAL"){
+            asm_out << 
+                "\tMOV DX, 2\n" <<
+                "\tMUL DX\n" <<
+                "\tMOV SI, AX\n" <<
+                "\tMOV AX, " << root->getChild()->getSymbol()->getName() << "[SI]" 
+            << endl;
+        }
+        else if(root->getChild()->getSymbol()->scope=="LOCAL") {
+            asm_out << 
+                "\tMOV DX, 2\n" <<
+                "\tMUL DX\n" <<
+                "\tMOV DX, AX\n" <<
+                "\tMOV AX, " << root->getChild()->getSymbol()->offset << "\n"
+                "\tSUB AX, DX\n" <<
+                "\tMOV SI, AX\n" <<
+                "\tNEG SI\n" <<
+                "\tMOV AX, [BP+SI]" 
+            << endl;
+        }
+        
     }
     else if(nodeStr == "term : term MULOP unary_expression") {
         string operation = root->getChild()->getSibling()->getSymbol()->getName();
