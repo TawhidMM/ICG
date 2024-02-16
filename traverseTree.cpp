@@ -190,18 +190,17 @@ void handleFuncDefinition(ParseTree* root) {
             "\tMOV BP, SP"
         << endl;
     }
-    else if(nodeStr=="statements : statement" || nodeStr=="statements : statements statement") {
+    /* else if(nodeStr=="statements : statement" || nodeStr=="statements : statements statement") {
         ParseTree* statement = root->getChild();
        
         while(statement->getNode().find("statement :")!=0){
             statement = statement->getSibling();
         }
 
-        if(statement->getNode()=="statement : IF LPAREN expression RPAREN statement"){
+        if(statement->getNode().find("statement : IF LPAREN expression RPAREN statement")==0){
             statement->next = lebel.nextLebel();
-           
         }
-    }
+    } */
     else if(nodeStr.find("expression : variable ASSIGNOP logic_expression") == 0) {
         handleAssignment(root);
         return;
@@ -215,10 +214,22 @@ void handleFuncDefinition(ParseTree* root) {
         return;
     }
     else if(nodeStr.find("statement : IF LPAREN expression RPAREN statement") == 0) {
+        root->next = lebel.nextLebel();
         ParseTree* expression = root->getChild()->getSibling()->getSibling();
         
         expression->trueLebel = lebel.nextLebel();       
         expression->falseLabel = root->next;
+
+        ParseTree* temp = expression;
+
+        while(temp){
+            if(temp->getNode().find("ELSE")==0) {
+                expression->falseLabel = lebel.nextLebel();
+                cout << temp->getNode() << " " << expression->falseLabel << endl;
+                break;
+            }
+            temp = temp->getSibling();
+        }
     }
     else if(nodeStr=="expression : logic_expression") {
         root->getChild()->trueLebel = root->trueLebel;
@@ -238,11 +249,19 @@ void handleFuncDefinition(ParseTree* root) {
     ParseTree* child = root->getChild();
 
     while(child != nullptr){
+
+        if(child->getNode().find("ELSE")==0){
+            ParseTree* expression = root->getChild()->getSibling()->getSibling();
+
+            asm_out << "\tJMP " << root->next << endl;
+            asm_out << expression->falseLabel << ":" << endl;
+        }
+
         handleFuncDefinition(child);
         child = child->getSibling();
     }
 
-    if(nodeStr.find("statement : IF LPAREN expression RPAREN statement") == 0) {
+    if(nodeStr.find("statement : IF LPAREN expression RPAREN statement")==0) {
         asm_out << root->next << ":" << endl;
     }
     else if(nodeStr=="func_definition : type_specifier ID LPAREN RPAREN compound_statement") {
@@ -369,8 +388,6 @@ void handleExpression(ParseTree* root) {
 
         logiop->getSibling()->trueLebel = root->trueLebel;
         logiop->getSibling()->falseLabel = root->falseLabel;
-
-        cout << root->trueLebel << " <> " << root->falseLabel << endl;
     }
     else if(nodeStr.find("ADDOP")==0||nodeStr.find("RELOP")==0){
         if(BX.used){
@@ -391,8 +408,11 @@ void handleExpression(ParseTree* root) {
     
     ParseTree* child = root->getChild();
    
-    while(child != nullptr){
-
+    while(child != nullptr) {
+        if(nodeStr!="logic_expression : rel_expression LOGICOP rel_expression") {
+            child->trueLebel = root->trueLebel;
+            child->falseLabel = root->falseLabel;
+        }
         if(child->getNode()=="LOGICOP"){
             if(child->getSymbol()->getName()=="||") {
                 asm_out << root->getChild()->falseLabel << ":" << endl;
