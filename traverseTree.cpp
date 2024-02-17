@@ -96,6 +96,7 @@ void traverse(ParseTree* root) {
     }
     else if(node.find("func_definition") == 0) {
         globalScope = false;
+        
         handleFuncDefinition(root);
         globalScope = true;
         localVarOffset = 0;
@@ -173,7 +174,7 @@ void handleVarDeclaration(ParseTree* root) {
 
 void handleFuncDefinition(ParseTree* root) {
     string nodeStr = root->getNode();
-
+    
     if(nodeStr.find("ID") == 0) {
         str = root->getSymbol()->getName();
 
@@ -206,11 +207,15 @@ void handleFuncDefinition(ParseTree* root) {
         return;
     }
     else if(nodeStr.find("logic_expression") == 0) {
+        if(root->next != ""){
+            asm_out << root->next << ":" << endl;
+        }
+        cout << root->next << ": " << nodeStr << endl;
         handleExpression(root);
 
-        if(root->trueLebel != ""){
+        /* if(root->trueLebel != ""){
             asm_out << root->trueLebel << ":" << endl;
-        }
+        } */
         return;
     }
     else if(nodeStr.find("statement : IF LPAREN expression RPAREN statement") == 0) {
@@ -225,13 +230,34 @@ void handleFuncDefinition(ParseTree* root) {
         while(temp){
             if(temp->getNode().find("ELSE")==0) {
                 expression->falseLabel = lebel.nextLebel();
-                cout << temp->getNode() << " " << expression->falseLabel << endl;
                 break;
             }
             temp = temp->getSibling();
         }
     }
-    else if(nodeStr=="expression : logic_expression") {
+    else if(nodeStr=="statement : WHILE LPAREN expression RPAREN statement") {
+        root->next = lebel.nextLebel();
+        ParseTree* expression = root->getChild()->getSibling()->getSibling();
+        
+        expression->next = lebel.nextLebel();
+        expression->trueLebel = lebel.nextLebel();       
+        expression->falseLabel = root->next;
+    }
+    else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0) {
+        root->next = lebel.nextLebel();
+        ParseTree* expression = root->getChild()->getSibling()->
+                getSibling()->getSibling();
+        
+        expression->next = lebel.nextLebel();
+        expression->trueLebel = lebel.nextLebel();       
+        expression->falseLabel = root->next;
+
+        expression->getChild()->next = lebel.nextLebel();
+    }
+    else if(nodeStr=="expression : logic_expression"|| 
+                nodeStr.find("expression_statement : expression")==0) {
+
+        root->getChild()->next = root->next;
         root->getChild()->trueLebel = root->trueLebel;
         root->getChild()->falseLabel = root->falseLabel;    
     }
@@ -256,12 +282,51 @@ void handleFuncDefinition(ParseTree* root) {
             asm_out << "\tJMP " << root->next << endl;
             asm_out << expression->falseLabel << ":" << endl;
         }
+        /* else if(nodeStr.find("statement : IF LPAREN expression RPAREN")==0 &&
+                child->getNode().find("RPAREN")==0) 
+        {
+
+            ParseTree* checkExpression = root->getChild()->getSibling()->
+                getSibling()->getSibling();
+
+            asm_out << "\tJMP " << checkExpression->next << endl;
+            asm_out << checkExpression->trueLebel << ":" << endl;
+        } */
+        else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0 &&
+                child->getNode().find("RPAREN")==0) 
+        {
+
+            ParseTree* checkExpression = root->getChild()->getSibling()->
+                getSibling()->getSibling();
+
+            asm_out << "\tJMP " << checkExpression->next << endl;
+            asm_out << checkExpression->trueLebel << ":" << endl;
+        }
 
         handleFuncDefinition(child);
         child = child->getSibling();
+
+        
     }
 
     if(nodeStr.find("statement : IF LPAREN expression RPAREN statement")==0) {
+        asm_out << root->next << ":" << endl;
+    }
+    /* else if(nodeStr.find("statement : WHILE LPAREN expression RPAREN statement")==0) {
+        ParseTree* expression = root->getChild()->getSibling()->getSibling();
+
+        asm_out << "\tJMP " << expression->next << endl;
+        asm_out << root->next << ":" << endl;
+    } */
+    else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0 ||
+                nodeStr.find("statement : WHILE LPAREN expression RPAREN statement")==0) 
+    {
+        ParseTree* expression = root->getChild();
+        while(expression->getNode().find("expression :")!=0){
+            expression = expression->getSibling();
+        }
+
+        asm_out << "\tJMP " << expression->next << endl;
         asm_out << root->next << ":" << endl;
     }
     else if(nodeStr=="func_definition : type_specifier ID LPAREN RPAREN compound_statement") {
@@ -370,9 +435,6 @@ void handleExpression(ParseTree* root) {
     else if(nodeStr=="logic_expression : rel_expression"){
         root->getChild()->trueLebel = root->trueLebel;
         root->getChild()->falseLabel = root->falseLabel;
-
-        cout << root->getChild()->trueLebel << " <> " << root->getChild()->falseLabel << endl;
-        cout << root->getChild()->getNode() << endl;
     }
     else if(nodeStr=="logic_expression : rel_expression LOGICOP rel_expression") {
         ParseTree* logiop = root->getChild()->getSibling();
@@ -499,6 +561,10 @@ void handleExpression(ParseTree* root) {
         asm_out << "\tDEC AX" << endl;
         assign(root->getChild());
     }
+    else if(nodeStr=="unary_expression : ADDOP unary_expression") {
+        /* value already at AX */
+        asm_out << "\tNEG AX" << endl;
+    }
     else if(nodeStr.find("simple_expression RELOP simple_expression")!=string::npos) {
         ParseTree* relop = root->getChild()->getSibling();
 
@@ -529,9 +595,6 @@ void handleExpression(ParseTree* root) {
             BX.pushed = false;
         }   
         BX.used = false; 
-
-        cout << root->trueLebel << " <RELOP> " << root->falseLabel << endl;
-
     }
 }
 
