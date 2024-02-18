@@ -194,17 +194,6 @@ void handleFuncDefinition(ParseTree* root) {
             "\tMOV BP, SP"
         << endl;
     }
-    /* else if(nodeStr=="statements : statement" || nodeStr=="statements : statements statement") {
-        ParseTree* statement = root->getChild();
-       
-        while(statement->getNode().find("statement :")!=0){
-            statement = statement->getSibling();
-        }
-
-        if(statement->getNode().find("statement : IF LPAREN expression RPAREN statement")==0){
-            statement->next = lebel.nextLebel();
-        }
-    } */
     else if(nodeStr.find("expression : variable ASSIGNOP logic_expression") == 0) {
         handleAssignment(root);
         return;
@@ -216,9 +205,6 @@ void handleFuncDefinition(ParseTree* root) {
 
         handleExpression(root);
 
-        /* if(root->trueLebel != ""){
-            asm_out << root->trueLebel << ":" << endl;
-        } */
         return;
     }
     else if(nodeStr.find("statement : IF LPAREN expression RPAREN statement") == 0) {
@@ -260,8 +246,6 @@ void handleFuncDefinition(ParseTree* root) {
     else if(nodeStr=="expression : logic_expression"|| 
                 nodeStr.find("expression_statement : expression")==0) {
 
-        /* cout << root->getNode() << "--" << 
-            root->next << endl; */
         root->getChild()->next = root->next;
         root->getChild()->trueLebel = root->trueLebel;
         root->getChild()->falseLabel = root->falseLabel;    
@@ -287,8 +271,9 @@ void handleFuncDefinition(ParseTree* root) {
             asm_out << "\tJMP " << root->next << endl;
             asm_out << expression->falseLabel << ":" << endl;
         }
-        else if(nodeStr.find("statement : IF LPAREN expression RPAREN")==0 &&
-                child->getNode().find("RPAREN")==0) 
+        else if((nodeStr.find("statement : IF LPAREN expression RPAREN")==0 ||
+                    nodeStr.find("statement : WHILE LPAREN expression")==0) &&
+                    child->getNode().find("RPAREN")==0) 
         {
             ParseTree* expression = root->getChild()->getSibling()->getSibling();
 
@@ -313,12 +298,6 @@ void handleFuncDefinition(ParseTree* root) {
     if(nodeStr.find("statement : IF LPAREN expression RPAREN statement")==0) {
         asm_out << root->next << ":" << endl;
     }
-    /* else if(nodeStr.find("statement : WHILE LPAREN expression RPAREN statement")==0) {
-        ParseTree* expression = root->getChild()->getSibling()->getSibling();
-
-        asm_out << "\tJMP " << expression->next << endl;
-        asm_out << root->next << ":" << endl;
-    } */
     else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0 ||
                 nodeStr.find("statement : WHILE LPAREN expression RPAREN statement")==0) 
     {
@@ -433,10 +412,6 @@ void handleExpression(ParseTree* root) {
             asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
         }    
     }
-    /* else if(nodeStr=="logic_expression : rel_expression"){
-        root->getChild()->trueLebel = root->trueLebel;
-        root->getChild()->falseLabel = root->falseLabel;
-    } */
     else if(nodeStr=="logic_expression : rel_expression LOGICOP rel_expression") {
         ParseTree* logiop = root->getChild()->getSibling();
 
