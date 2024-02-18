@@ -494,9 +494,10 @@ void handleExpression(ParseTree* root) {
        
         if(operation == "+")
             asm_out << "\tADD AX, BX" << endl;            
-        else if(operation == "-")
+        else if(operation == "-"){
+            asm_out << "\tXCHG BX, AX" << endl; 
             asm_out << "\tSUB AX, BX" << endl; 
-
+        }
         if(BX.pushed){
             asm_out << "\tPOP BX" << endl;
             BX.pushed = false;
@@ -554,13 +555,17 @@ void handleExpression(ParseTree* root) {
     }
     else if(nodeStr=="factor : variable INCOP") {
         /* value already at AX */
+        asm_out << "\tPUSH AX" << endl;
         asm_out << "\tINC AX" << endl;
         assign(root->getChild());
+        asm_out << "\tPOP AX" << endl;
     }
     else if(nodeStr=="factor : variable DECOP") {
         /* value already at AX */
+        asm_out << "\tPUSH AX" << endl;
         asm_out << "\tDEC AX" << endl;
         assign(root->getChild());
+        asm_out << "\tPOP AX" << endl;
     }
     else if(nodeStr=="unary_expression : ADDOP unary_expression") {
         /* value already at AX */
