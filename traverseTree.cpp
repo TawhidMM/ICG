@@ -1,5 +1,6 @@
 #include<iostream>
 #include<fstream>
+#include<stack>
 #include"2005036_ParseTree.h"
 
 using namespace std;
@@ -11,11 +12,11 @@ public:
     bool pushed = false;
 };
 
-class Lebel {
+class Label {
 private:
     int count = 0;
 public:
-    string nextLebel(){
+    string nextLabel(){
         count++;
         return ("L" + to_string(count));
     }
@@ -32,34 +33,20 @@ void handleAssignment(ParseTree* root);
 void assign(ParseTree* variable);
 
 
-/* 
-
-******** problems ***********
-1. sub 
-2. lebel after expression
-
-
- */
-
 ofstream asm_out;
 bool globalScope = true;
 bool expValuePushed = false;
 bool printFuncCalled = false;
 bool arrayDeclared = false;
 int localVarOffset = 0;
-string str;
+int funcParameters = 0;
+
+stack<int> offsetStack;
+
 
 RegisterStatus BX;
 RegisterStatus CX;
-Lebel lebel;
-
-
-/* int main(){
-    cout << INIT_DATA_SEGMENT << endl;
-    cout << GLOBAL_VAR(x);
-    
-} */
-
+Label label;
 
 
 void traverseTree(ParseTree* tree, string FILE) {
@@ -99,10 +86,15 @@ void traverse(ParseTree* root) {
     }
     else if(node.find("func_definition") == 0) {
         globalScope = false;
-        
-        handleFuncDefinition(root);
-        globalScope = true;
+
+        offsetStack.push(localVarOffset);
         localVarOffset = 0;
+
+        handleFuncDefinition(root);
+
+        globalScope = true;
+        localVarOffset = offsetStack.top();
+        offsetStack.pop();
         return;
     }
     
@@ -165,7 +157,6 @@ void handleVarDeclaration(ParseTree* root) {
             id = id->getSibling();
         }
         
-
         if(id->getSymbol()->scope=="LOCAL"){
             id->getSymbol()->offset = localVarOffset;
         }
@@ -178,12 +169,12 @@ void handleVarDeclaration(ParseTree* root) {
 void handleFuncDefinition(ParseTree* root) {
     string nodeStr = root->getNode();
     
-    if(nodeStr.find("ID") == 0) {
-        str = root->getSymbol()->getName();
+    if(nodeStr.find("func_definition : type_specifier ID")==0) {
+        string funcName = root->getChild()->getSibling()->getSymbol()->getName();
 
-        asm_out << str << " PROC" << endl;
+        asm_out << funcName << " PROC" << endl;
 
-        if(str == "main") {
+        if(funcName == "main") {
             asm_out << 
                 "\tMOV AX, @DATA\n" <<
                 "\tMOV DS, AX" 
@@ -193,6 +184,20 @@ void handleFuncDefinition(ParseTree* root) {
             "\tPUSH BP\n" <<
             "\tMOV BP, SP"
         << endl;
+
+        funcParameters = 0;
+    }
+    else if(nodeStr.find("parameter_list")==0) {
+        ParseTree* id = root->getChild();
+        
+        while(id->getNode()!="ID"){
+            id = id->getSibling();
+        }
+        cout << id->getSymbol()->getName() << endl;
+        id->getSymbol()->offset = -(4 + funcParameters);
+        id->getSymbol()->scope = "LOCAL";
+
+        funcParameters += 2;
     }
     else if(nodeStr.find("expression : variable ASSIGNOP logic_expression") == 0) {
         handleAssignment(root);
@@ -208,46 +213,46 @@ void handleFuncDefinition(ParseTree* root) {
         return;
     }
     else if(nodeStr.find("statement : IF LPAREN expression RPAREN statement") == 0) {
-        root->next = lebel.nextLebel();
+        root->next = label.nextLabel();
         ParseTree* expression = root->getChild()->getSibling()->getSibling();
         
-        expression->trueLebel = lebel.nextLebel();       
+        expression->trueLabel = label.nextLabel();       
         expression->falseLabel = root->next;
 
         ParseTree* temp = expression;
 
         while(temp){
             if(temp->getNode().find("ELSE")==0) {
-                expression->falseLabel = lebel.nextLebel();
+                expression->falseLabel = label.nextLabel();
                 break;
             }
             temp = temp->getSibling();
         }
     }
     else if(nodeStr=="statement : WHILE LPAREN expression RPAREN statement") {
-        root->next = lebel.nextLebel();
+        root->next = label.nextLabel();
         ParseTree* expression = root->getChild()->getSibling()->getSibling();
         
-        expression->next = lebel.nextLebel();
-        expression->trueLebel = lebel.nextLebel();       
+        expression->next = label.nextLabel();
+        expression->trueLabel = label.nextLabel();       
         expression->falseLabel = root->next;
     }
     else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0) {
-        root->next = lebel.nextLebel();
+        root->next = label.nextLabel();
         ParseTree* expression = root->getChild()->getSibling()->
                 getSibling()->getSibling();
         
-        expression->next = lebel.nextLebel();
-        expression->trueLebel = lebel.nextLebel();       
+        expression->next = label.nextLabel();
+        expression->trueLabel = label.nextLabel();       
         expression->falseLabel = root->next;
 
-        expression->getSibling()->next = lebel.nextLebel();
+        expression->getSibling()->next = label.nextLabel();
     }
     else if(nodeStr=="expression : logic_expression"|| 
                 nodeStr.find("expression_statement : expression")==0) {
 
         root->getChild()->next = root->next;
-        root->getChild()->trueLebel = root->trueLebel;
+        root->getChild()->trueLabel = root->trueLabel;
         root->getChild()->falseLabel = root->falseLabel;    
     }
     else if(nodeStr.find("PRINTLN") != string::npos) {
@@ -277,7 +282,7 @@ void handleFuncDefinition(ParseTree* root) {
         {
             ParseTree* expression = root->getChild()->getSibling()->getSibling();
 
-            asm_out << expression->trueLebel << ":" << endl;
+            asm_out << expression->trueLabel << ":" << endl;
         }
         else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0 &&
                 child->getNode().find("RPAREN")==0) 
@@ -286,13 +291,12 @@ void handleFuncDefinition(ParseTree* root) {
                 getSibling()->getSibling();
 
             asm_out << "\tJMP " << checkExpression->next << endl;
-            asm_out << checkExpression->trueLebel << ":" << endl;
+            asm_out << checkExpression->trueLabel << ":" << endl;
         }
 
         handleFuncDefinition(child);
         child = child->getSibling();
 
-        
     }
 
     if(nodeStr.find("statement : IF LPAREN expression RPAREN statement")==0) {
@@ -309,22 +313,26 @@ void handleFuncDefinition(ParseTree* root) {
         asm_out << "\tJMP " << expression->next << endl;
         asm_out << root->next << ":" << endl;
     }
-    else if(nodeStr=="func_definition : type_specifier ID LPAREN RPAREN compound_statement") {
+    
+    else if(nodeStr.find("func_definition : type_specifier ID")==0) {
+        string funcName = root->getChild()->getSibling()->getSymbol()->getName();
+        
         if(localVarOffset != 0){
             asm_out << "\tADD SP, " << localVarOffset << endl;
         }
         asm_out << "\tPOP BP" << endl;
 
-        if(str == "main"){
+        if(funcName == "main"){
             asm_out << 
                 "\tMOV AX,4CH\n"
                 "\tINT 21H" 
             << endl;
         }
-        asm_out << 
-            root->getChild()->getSibling()->getSymbol()->getName() << 
-            " ENDP" << 
-        endl;
+        else {
+            asm_out << "\tRET " << funcParameters << endl;
+        }
+
+        asm_out << funcName << " ENDP\n" << endl;
     }
 
 }
@@ -356,7 +364,13 @@ void assign(ParseTree* variable) {
             << endl;
         }
         else if(variable->getSymbol()->scope=="LOCAL") {
-            asm_out << "\tMOV [BP-" << variable->getSymbol()->offset << "], AX" << endl; 
+            if(variable->getSymbol()->offset >= 0) {
+                asm_out << "\tMOV [BP-" << variable->getSymbol()->offset << "], AX" << endl; 
+            }
+            else {
+                asm_out << "\tMOV [BP+" << (-1*variable->getSymbol()->offset) << "], AX" << endl; 
+            }
+            
         }
 
     }
@@ -409,22 +423,29 @@ void handleExpression(ParseTree* root) {
             asm_out << "\tMOV AX," << root->getSymbol()->getName() << endl;
         }
         else if(scope=="LOCAL" && type=="VARIABLE") {
-            asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
+
+            if(root->getSymbol()->offset >= 0) {
+                asm_out << "\tMOV AX, [BP-" << root->getSymbol()->offset << "]" << endl;
+            }
+            else {
+                asm_out << "\tMOV AX, [BP+" << (-1*root->getSymbol()->offset) << "]" << endl;
+            }
+           
         }    
     }
     else if(nodeStr=="logic_expression : rel_expression LOGICOP rel_expression") {
         ParseTree* logiop = root->getChild()->getSibling();
 
         if(logiop->getSymbol()->getName()=="||") {
-            root->getChild()->trueLebel = root->trueLebel;
-            root->getChild()->falseLabel = lebel.nextLebel();     
+            root->getChild()->trueLabel = root->trueLabel;
+            root->getChild()->falseLabel = label.nextLabel();     
         }
         else if(logiop->getSymbol()->getName()=="&&"){
-            root->getChild()->trueLebel = lebel.nextLebel();
+            root->getChild()->trueLabel = label.nextLabel();
             root->getChild()->falseLabel = root->falseLabel;  
         }
 
-        logiop->getSibling()->trueLebel = root->trueLebel;
+        logiop->getSibling()->trueLabel = root->trueLabel;
         logiop->getSibling()->falseLabel = root->falseLabel;
     }
     else if(nodeStr.find("ADDOP")==0||nodeStr.find("RELOP")==0){
@@ -448,7 +469,7 @@ void handleExpression(ParseTree* root) {
    
     while(child != nullptr) {
         if(nodeStr!="logic_expression : rel_expression LOGICOP rel_expression") {
-            child->trueLebel = root->trueLebel;
+            child->trueLabel = root->trueLabel;
             child->falseLabel = root->falseLabel;
         }
         if(child->getNode()=="LOGICOP"){
@@ -456,7 +477,7 @@ void handleExpression(ParseTree* root) {
                 asm_out << root->getChild()->falseLabel << ":" << endl;
             }
             else if(child->getSymbol()->getName()=="&&"){
-                asm_out << root->getChild()->trueLebel << ":" << endl;
+                asm_out << root->getChild()->trueLabel << ":" << endl;
             }
         }
 
@@ -549,29 +570,29 @@ void handleExpression(ParseTree* root) {
     else if(nodeStr.find("simple_expression RELOP simple_expression")!=string::npos) {
         ParseTree* relop = root->getChild()->getSibling();
 
-        if(root->trueLebel == ""){
+        if(root->trueLabel == ""){
             return;
         }
 
         asm_out << "\tCMP BX, AX" << endl;
 
         if(relop->getSymbol()->getName()=="=="){
-            asm_out << "\tJE " << root->trueLebel << endl;
+            asm_out << "\tJE " << root->trueLabel << endl;
         }
         else if(relop->getSymbol()->getName()=="!="){
-            asm_out << "\tJNE " << root->trueLebel << endl;
+            asm_out << "\tJNE " << root->trueLabel << endl;
         }
         else if(relop->getSymbol()->getName()==">"){
-            asm_out << "\tJG " << root->trueLebel << endl;
+            asm_out << "\tJG " << root->trueLabel << endl;
         }
         else if(relop->getSymbol()->getName()==">="){
-            asm_out << "\tJGE " << root->trueLebel << endl;
+            asm_out << "\tJGE " << root->trueLabel << endl;
         }
         else if(relop->getSymbol()->getName()=="<"){
-            asm_out << "\tJL " << root->trueLebel << endl;
+            asm_out << "\tJL " << root->trueLabel << endl;
         }
         else if(relop->getSymbol()->getName()=="<="){
-            asm_out << "\tJLE " << root->trueLebel << endl;
+            asm_out << "\tJLE " << root->trueLabel << endl;
         }
 
         asm_out << "\tJMP " << root->falseLabel << endl;
@@ -580,6 +601,14 @@ void handleExpression(ParseTree* root) {
             BX.pushed = false;
         }   
         BX.used = false; 
+    }
+    else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
+        asm_out << 
+            "\tCALL " << root->getChild()->getSymbol()->getName() 
+        << endl;
+    }
+    else if(nodeStr.find("arguments")==0){
+        asm_out << "\tPUSH AX" << endl;
     }
 }
 
@@ -592,7 +621,13 @@ void handlePrint(ParseTree* root) {
     }
 
     if(child->getSymbol()->scope=="LOCAL") {
-        asm_out << "\tMOV AX, [BP-" << child->getSymbol()->offset << "]" << endl;
+        if(child->getSymbol()->offset>=0){
+            asm_out << "\tMOV AX, [BP-" << child->getSymbol()->offset << "]" << endl;
+        }
+        else{
+            asm_out << "\tMOV AX, [BP+" << (-1*child->getSymbol()->offset) << "]" << endl;
+        }
+        
     }
     else if(child->getSymbol()->scope=="GLOBAL") {
         asm_out << "\tMOV AX, " << child->getSymbol()->getName() << endl;
