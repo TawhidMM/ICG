@@ -464,6 +464,17 @@ void handleExpression(ParseTree* root) {
         asm_out << "\tMOV CX, AX" << endl;
         CX.used = true;
     } 
+    else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
+        if(CX.used) {
+            asm_out << "\tPUSH CX" << endl;
+            CX.pushed = true;
+        }
+        if(BX.used) {
+            asm_out << "\tPUSH BX" << endl;
+            BX.pushed = true;
+        }
+        
+    } 
     
     ParseTree* child = root->getChild();
    
@@ -498,7 +509,10 @@ void handleExpression(ParseTree* root) {
             asm_out << "\tPOP BX" << endl;
             BX.pushed = false;
         }   
-        BX.used = false;       
+        else {
+            BX.used = false;     
+        }
+          
     }
     else if(nodeStr == "variable : ID LSQUARE expression RSQUARE") {
         /* index already in AX */
@@ -546,8 +560,11 @@ void handleExpression(ParseTree* root) {
         if(CX.pushed){
             asm_out << "\tPOP CX" << endl;
             CX.pushed = false;
-        }   
-        CX.used = false; 
+        }  
+        else{
+            CX.used = false; 
+        } 
+        
     }
     else if(nodeStr=="factor : variable INCOP") {
         /* value already at AX */
@@ -599,13 +616,24 @@ void handleExpression(ParseTree* root) {
         if(BX.pushed){
             asm_out << "\tPOP BX" << endl;
             BX.pushed = false;
-        }   
-        BX.used = false; 
+        } else {
+            BX.used = false; 
+        }
+        
     }
     else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
         asm_out << 
             "\tCALL " << root->getChild()->getSymbol()->getName() 
         << endl;
+
+        if(BX.pushed){
+            asm_out << "\tPOP BX" << endl;
+            BX.pushed = false;
+        }   
+        if(CX.pushed){
+            asm_out << "\tPOP CX" << endl;
+            CX.pushed = false;
+        } 
     }
     else if(nodeStr.find("arguments")==0){
         asm_out << "\tPUSH AX" << endl;
