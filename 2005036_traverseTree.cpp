@@ -40,6 +40,7 @@ bool arrayDeclared = false;
 int localVarOffset = 0;
 int funcParameters = 0;
 string returnLabel;
+bool boolExpression = false;
 
 stack<int> offsetStack;
 
@@ -207,8 +208,9 @@ void handleFuncDefinition(ParseTree* root) {
         if(root->next != ""){
             asm_out << root->next << ":" << endl;
         }
-
+        
         handleExpression(root);
+        boolExpression = false;
 
         return;
     }
@@ -228,6 +230,7 @@ void handleFuncDefinition(ParseTree* root) {
             }
             temp = temp->getSibling();
         }
+        boolExpression = true;
     }
     else if(nodeStr=="statement : WHILE LPAREN expression RPAREN statement") {
         root->next = label.nextLabel();
@@ -236,6 +239,8 @@ void handleFuncDefinition(ParseTree* root) {
         expression->next = label.nextLabel();
         expression->trueLabel = label.nextLabel();       
         expression->falseLabel = root->next;
+
+        boolExpression = true;
     }
     else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0) {
         root->next = label.nextLabel();
@@ -268,7 +273,7 @@ void handleFuncDefinition(ParseTree* root) {
    
     ParseTree* child = root->getChild();
 
-    while(child != nullptr){
+    while(child != nullptr) {
 
         if(child->getNode().find("ELSE")==0){
             ParseTree* expression = root->getChild()->getSibling()->getSibling();
@@ -283,6 +288,7 @@ void handleFuncDefinition(ParseTree* root) {
             ParseTree* expression = root->getChild()->getSibling()->getSibling();
 
             asm_out << expression->trueLabel << ":" << endl;
+            
         }
         else if(nodeStr.find("statement : FOR LPAREN expression_statement")==0 &&
                 child->getNode().find("RPAREN")==0) 
@@ -293,7 +299,7 @@ void handleFuncDefinition(ParseTree* root) {
             asm_out << "\tJMP " << checkExpression->next << endl;
             asm_out << checkExpression->trueLabel << ":" << endl;
         }
-
+        
         handleFuncDefinition(child);
         child = child->getSibling();
 
@@ -628,6 +634,11 @@ void handleExpression(ParseTree* root) {
             BX.used = false; 
         }
         
+    }
+    else if(nodeStr=="rel_expression : simple_expression" && boolExpression){
+        asm_out << "\tCMP AX, 0" << endl;
+        asm_out << "\tJNE " << root->trueLabel << endl;
+        asm_out << "\tJMP " << root->falseLabel << endl;
     }
     else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
         asm_out << 
