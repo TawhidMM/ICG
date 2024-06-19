@@ -7,10 +7,30 @@ using namespace std;
 
 
 class RegisterStatus {
+private:
+    stack<bool> prevPushStatus;
+    bool pushed = false;
+
 public:
     bool used = false;
-    bool pushed = false;
+    
+    void setPushed() {
+        prevPushStatus.push(pushed);
+        pushed = true;
+    }
+
+    void restorePushed() {
+        if(prevPushStatus.size() > 0) {
+            pushed = prevPushStatus.top();
+            prevPushStatus.pop();
+        }
+    }
+
+    bool isPushed() {
+        return pushed;
+    }
 };
+
 
 class Label {
 private:
@@ -41,9 +61,9 @@ int localVarOffset = 0;
 int funcParameters = 0;
 string returnLabel;
 bool boolExpression = false;
+bool assignop = false;
 
 stack<int> offsetStack;
-
 
 RegisterStatus BX;
 RegisterStatus CX;
@@ -320,7 +340,9 @@ void handleFuncDefinition(ParseTree* root) {
         asm_out << root->next << ":" << endl;
     }
     else if(nodeStr.find("statement : RETURN")==0){
-        returnLabel = label.nextLabel();
+        if(returnLabel == "") {
+            returnLabel = label.nextLabel();
+        }    
         asm_out << "\tJMP " << returnLabel << endl;
     }
     else if(nodeStr.find("func_definition : type_specifier ID")==0) {
@@ -357,12 +379,13 @@ void handleAssignment(ParseTree* root){
     while(child->getSibling()) {
         child = child->getSibling();
     }
-
+    assignop = true;
     handleExpression(child);
-   
+    assignop = false;
+    
     child = root->getChild();
-
     assign(child);
+    boolExpression = false;
 
 }
 
@@ -450,6 +473,13 @@ void handleExpression(ParseTree* root) {
     else if(nodeStr=="logic_expression : rel_expression LOGICOP rel_expression") {
         ParseTree* logiop = root->getChild()->getSibling();
 
+        if(assignop){
+            root->trueLabel = label.nextLabel();
+            root->falseLabel = label.nextLabel();
+
+            boolExpression = true;
+        }
+
         if(logiop->getSymbol()->getName()=="||") {
             root->getChild()->trueLabel = root->trueLabel;
             root->getChild()->falseLabel = label.nextLabel();     
@@ -462,10 +492,21 @@ void handleExpression(ParseTree* root) {
         logiop->getSibling()->trueLabel = root->trueLabel;
         logiop->getSibling()->falseLabel = root->falseLabel;
     }
+    else if(nodeStr=="rel_expression : simple_expression RELOP simple_expression" && assignop){
+        if(!boolExpression){
+            root->trueLabel = label.nextLabel();
+            root->falseLabel = label.nextLabel();
+
+            boolExpression = true;
+        }
+        
+
+    }
     else if(nodeStr.find("ADDOP")==0||nodeStr.find("RELOP")==0){
         if(BX.used){
             asm_out << "\tPUSH BX" << endl;
-            BX.pushed = true;
+
+            BX.setPushed();
         }
         asm_out << "\tMOV BX, AX" << endl;
         BX.used = true;
@@ -473,7 +514,8 @@ void handleExpression(ParseTree* root) {
     else if(nodeStr.find("MULOP")==0){
         if(CX.used) {
             asm_out << "\tPUSH CX" << endl;
-            CX.pushed = true;
+
+            CX.setPushed();
         }
         asm_out << "\tMOV CX, AX" << endl;
         CX.used = true;
@@ -481,11 +523,13 @@ void handleExpression(ParseTree* root) {
     else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
         if(CX.used) {
             asm_out << "\tPUSH CX" << endl;
-            CX.pushed = true;
+
+            CX.setPushed();
         }
         if(BX.used) {
             asm_out << "\tPUSH BX" << endl;
-            BX.pushed = true;
+
+            BX.setPushed();
         }
         
     } 
@@ -519,9 +563,10 @@ void handleExpression(ParseTree* root) {
             asm_out << "\tXCHG BX, AX" << endl; 
             asm_out << "\tSUB AX, BX" << endl; 
         }
-        if(BX.pushed){
+
+        if(BX.isPushed()){
             asm_out << "\tPOP BX" << endl;
-            BX.pushed = false;
+            BX.restorePushed();
         }   
         else {
             BX.used = false;     
@@ -571,9 +616,9 @@ void handleExpression(ParseTree* root) {
                 asm_out << "\tMOV AX, DX" << endl;
         }
         
-        if(CX.pushed){
+        if(CX.isPushed()){
             asm_out << "\tPOP CX" << endl;
-            CX.pushed = false;
+            CX.restorePushed();
         }  
         else{
             CX.used = false; 
@@ -627,9 +672,9 @@ void handleExpression(ParseTree* root) {
         }
 
         asm_out << "\tJMP " << root->falseLabel << endl;
-        if(BX.pushed){
+        if(BX.isPushed()){
             asm_out << "\tPOP BX" << endl;
-            BX.pushed = false;
+            BX.restorePushed();
         } else {
             BX.used = false; 
         }
@@ -640,18 +685,22 @@ void handleExpression(ParseTree* root) {
         asm_out << "\tJNE " << root->trueLabel << endl;
         asm_out << "\tJMP " << root->falseLabel << endl;
     }
+    else if(nodeStr=="logic_expression : rel_expression" && assignop){
+        root->trueLabel = root->getChild()->trueLabel;
+        root->falseLabel = root->getChild()->falseLabel;
+    }
     else if(nodeStr=="factor : ID LPAREN argument_list RPAREN"){
         asm_out << 
             "\tCALL " << root->getChild()->getSymbol()->getName() 
         << endl;
 
-        if(BX.pushed){
+        if(BX.isPushed()){
             asm_out << "\tPOP BX" << endl;
-            BX.pushed = false;
+            BX.restorePushed();
         }   
-        if(CX.pushed){
+        if(CX.isPushed()){
             asm_out << "\tPOP CX" << endl;
-            CX.pushed = false;
+            CX.restorePushed();
         } 
     }
     else if(nodeStr.find("arguments")==0){
