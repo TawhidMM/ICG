@@ -34,7 +34,7 @@ this C compiler can compile a subset of C language and generate the target code 
 
 
 
-## HOW TO RUN
+## How to run
 
 #### 1. put the c code **input.c**
 
