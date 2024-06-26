@@ -53,4 +53,9 @@ this C compiler can compile a subset of C language and generate the target code 
 ```bash
   ./executeInput.sh
 ```
+
+## Related
+
+The full CSE 310, BUET 
+[Compiler](https://github.com/TawhidMM/C_Compiler)
     
